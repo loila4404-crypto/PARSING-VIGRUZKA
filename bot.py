@@ -1,6 +1,9 @@
 import asyncio
 import asyncpg
 import secrets
+import os
+
+from aiohttp import web
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
@@ -23,8 +26,12 @@ dp = Dispatcher()
 db_pool = None
 
 
-class AddUser(StatesGroup):
+class AddTelegramUser(StatesGroup):
     waiting_for_username = State()
+
+
+class AddWhatsAppNumber(StatesGroup):
+    waiting_for_phone = State()
 
 
 async def init_db():
@@ -66,12 +73,40 @@ async def delete_user(user_id: int):
         await conn.execute("delete from tg_users where id = $1", user_id)
 
 
+async def get_wa_numbers():
+    async with db_pool.acquire() as conn:
+        return await conn.fetch(
+            "select id, phone, status from wa_numbers order by id asc"
+        )
+
+
+async def add_wa_number(phone: str, added_by: int):
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            """
+            insert into wa_numbers (phone, status, added_by)
+            values ($1, 'не проверен', $2)
+            on conflict (phone) do nothing
+            """,
+            phone,
+            added_by
+        )
+
+
+async def delete_wa_number(number_id: int):
+    async with db_pool.acquire() as conn:
+        await conn.execute("delete from wa_numbers where id = $1", number_id)
+
+
 def main_menu():
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="👥 Юзеры")],
-            [KeyboardButton(text="➕ Добавить юзера")],
-            [KeyboardButton(text="📤 Выгрузить юзеров")],
+            [KeyboardButton(text="👥 Telegram юзеры")],
+            [KeyboardButton(text="➕ Добавить Telegram")],
+            [KeyboardButton(text="📤 Выгрузить Telegram")],
+            [KeyboardButton(text="📱 WhatsApp номера")],
+            [KeyboardButton(text="➕ Добавить WhatsApp")],
+            [KeyboardButton(text="📤 Выгрузить WhatsApp")],
             [KeyboardButton(text="🔗 Создать ссылку доступа")],
         ],
         resize_keyboard=True
@@ -152,17 +187,17 @@ async def create_invite(message: Message):
     await message.answer(f"🔗 Ссылка доступа:\n\n{link}")
 
 
-@dp.message(F.text == "➕ Добавить юзера")
-async def add_user_button(message: Message, state: FSMContext):
+@dp.message(F.text == "➕ Добавить Telegram")
+async def add_telegram_button(message: Message, state: FSMContext):
     if not await is_admin(message.from_user.id):
         return
 
     await message.answer("Отправь @username")
-    await state.set_state(AddUser.waiting_for_username)
+    await state.set_state(AddTelegramUser.waiting_for_username)
 
 
-@dp.message(AddUser.waiting_for_username)
-async def process_username(message: Message, state: FSMContext):
+@dp.message(AddTelegramUser.waiting_for_username)
+async def process_telegram_username(message: Message, state: FSMContext):
     if not await is_admin(message.from_user.id):
         return
 
@@ -178,15 +213,15 @@ async def process_username(message: Message, state: FSMContext):
     await state.clear()
 
 
-@dp.message(F.text == "👥 Юзеры")
-async def show_users(message: Message):
+@dp.message(F.text == "👥 Telegram юзеры")
+async def show_telegram_users(message: Message):
     if not await is_admin(message.from_user.id):
         return
 
     users = await get_users()
 
     if not users:
-        await message.answer("База пустая")
+        await message.answer("База Telegram пустая")
         return
 
     for user in users:
@@ -200,7 +235,7 @@ async def show_users(message: Message):
             [
                 InlineKeyboardButton(
                     text="❌ Удалить",
-                    callback_data=f"delete_{user['id']}"
+                    callback_data=f"delete_tg_{user['id']}"
                 )
             ]
         ])
@@ -211,27 +246,27 @@ async def show_users(message: Message):
         )
 
 
-@dp.callback_query(F.data.startswith("delete_"))
-async def delete_user_callback(callback: CallbackQuery):
+@dp.callback_query(F.data.startswith("delete_tg_"))
+async def delete_telegram_callback(callback: CallbackQuery):
     if not await is_admin(callback.from_user.id):
         return
 
-    user_id = int(callback.data.split("_")[1])
+    user_id = int(callback.data.split("_")[2])
     await delete_user(user_id)
 
-    await callback.message.edit_text("❌ Юзер удален")
+    await callback.message.edit_text("❌ Telegram юзер удален")
     await callback.answer("Удалено")
 
 
-@dp.message(F.text == "📤 Выгрузить юзеров")
-async def export_users(message: Message):
+@dp.message(F.text == "📤 Выгрузить Telegram")
+async def export_telegram_users(message: Message):
     if not await is_admin(message.from_user.id):
         return
 
     users = await get_users()
 
     if not users:
-        await message.answer("База пустая")
+        await message.answer("База Telegram пустая")
         return
 
     usernames = [f"@{user['username']}" for user in users]
@@ -239,9 +274,104 @@ async def export_users(message: Message):
     with open("users_export.txt", "w", encoding="utf-8") as f:
         f.write("\n".join(usernames))
 
-    text = "📤 Юзеры выгружены:\n\n"
+    text = "📤 Telegram юзеры выгружены:\n\n"
     text += "\n".join(usernames)
     text += f"\n\nВсего: {len(users)}"
+
+    await message.answer(text, reply_markup=main_menu())
+
+
+@dp.message(F.text == "➕ Добавить WhatsApp")
+async def add_whatsapp_button(message: Message, state: FSMContext):
+    if not await is_admin(message.from_user.id):
+        return
+
+    await message.answer("Отправь номер WhatsApp в формате +380991234567")
+    await state.set_state(AddWhatsAppNumber.waiting_for_phone)
+
+
+@dp.message(AddWhatsAppNumber.waiting_for_phone)
+async def process_whatsapp_phone(message: Message, state: FSMContext):
+    if not await is_admin(message.from_user.id):
+        return
+
+    phone = message.text.strip().replace(" ", "").replace("-", "")
+
+    if not phone.startswith("+"):
+        await message.answer("Номер должен начинаться с +, например +380991234567")
+        return
+
+    await add_wa_number(phone, message.from_user.id)
+
+    await message.answer(f"Добавлен WhatsApp номер:\n{phone}", reply_markup=main_menu())
+    await state.clear()
+
+
+@dp.message(F.text == "📱 WhatsApp номера")
+async def show_whatsapp_numbers(message: Message):
+    if not await is_admin(message.from_user.id):
+        return
+
+    numbers = await get_wa_numbers()
+
+    if not numbers:
+        await message.answer("База WhatsApp пустая")
+        return
+
+    for number in numbers:
+        clean_phone = number["phone"].replace("+", "")
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🔗 Открыть WhatsApp",
+                    url=f"https://wa.me/{clean_phone}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="❌ Удалить",
+                    callback_data=f"delete_wa_{number['id']}"
+                )
+            ]
+        ])
+
+        await message.answer(
+            f"{number['phone']}\nСтатус: {number['status']}",
+            reply_markup=kb
+        )
+
+
+@dp.callback_query(F.data.startswith("delete_wa_"))
+async def delete_whatsapp_callback(callback: CallbackQuery):
+    if not await is_admin(callback.from_user.id):
+        return
+
+    number_id = int(callback.data.split("_")[2])
+    await delete_wa_number(number_id)
+
+    await callback.message.edit_text("❌ WhatsApp номер удален")
+    await callback.answer("Удалено")
+
+
+@dp.message(F.text == "📤 Выгрузить WhatsApp")
+async def export_whatsapp_numbers(message: Message):
+    if not await is_admin(message.from_user.id):
+        return
+
+    numbers = await get_wa_numbers()
+
+    if not numbers:
+        await message.answer("База WhatsApp пустая")
+        return
+
+    phones = [number["phone"] for number in numbers]
+
+    with open("whatsapp_export.txt", "w", encoding="utf-8") as f:
+        f.write("\n".join(phones))
+
+    text = "📤 WhatsApp номера выгружены:\n\n"
+    text += "\n".join(phones)
+    text += f"\n\nВсего: {len(phones)}"
 
     await message.answer(text, reply_markup=main_menu())
 
@@ -264,11 +394,9 @@ async def add_user_command(message: Message):
     await message.answer(f"Добавлен @{username}", reply_markup=main_menu())
 
 
-from aiohttp import web
-import os
-
 async def handle(request):
     return web.Response(text="Bot is running")
+
 
 async def start_web_server():
     app = web.Application()
@@ -280,6 +408,7 @@ async def start_web_server():
     port = int(os.getenv("PORT", 10000))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
+
 
 async def main():
     await init_db()
