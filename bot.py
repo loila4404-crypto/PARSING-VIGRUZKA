@@ -60,7 +60,10 @@ async def init_db():
 
     db_pool = await asyncpg.create_pool(
         DATABASE_URL,
-        ssl="require"
+        min_size=1,
+        max_size=3,
+        ssl="require",
+        command_timeout=30
     )
 
     async with db_pool.acquire() as conn:
