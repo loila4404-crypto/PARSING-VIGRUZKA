@@ -233,16 +233,26 @@ async def delete_wa_number(number_id: int):
 def main_menu():
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="👥 Telegram юзеры")],
-            [KeyboardButton(text="➕ Добавить Telegram")],
-            [KeyboardButton(text="📂 Telegram группы")],
-            [KeyboardButton(text="➕ Создать группу")],
-            [KeyboardButton(text="✏️ Переименовать группу")],
-            [KeyboardButton(text="📤 Выгрузить Telegram")],
-            [KeyboardButton(text="📱 WhatsApp номера")],
-            [KeyboardButton(text="➕ Добавить WhatsApp")],
-            [KeyboardButton(text="📤 Выгрузить WhatsApp")],
-            [KeyboardButton(text="🔗 Создать ссылку доступа")],
+            [
+                KeyboardButton(text="👥 Telegram юзеры"),
+                KeyboardButton(text="➕ Добавить Telegram"),
+            ],
+            [
+                KeyboardButton(text="📂 Telegram группы"),
+                KeyboardButton(text="➕ Создать группу"),
+            ],
+            [
+                KeyboardButton(text="✏️ Переименовать группу"),
+                KeyboardButton(text="📤 Выгрузить Telegram"),
+            ],
+            [
+                KeyboardButton(text="📱 WhatsApp номера"),
+                KeyboardButton(text="➕ Добавить WhatsApp"),
+            ],
+            [
+                KeyboardButton(text="📤 Выгрузить WhatsApp"),
+                KeyboardButton(text="🔗 Создать ссылку доступа"),
+            ],
         ],
         resize_keyboard=True
     )
