@@ -2,6 +2,7 @@ import asyncio
 import asyncpg
 import secrets
 import os
+import aiohttp
 
 from aiohttp import web
 
@@ -24,6 +25,7 @@ load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
+RENDER_URL = os.getenv("RENDER_URL")
 MAIN_ADMIN_ID = int(os.getenv("MAIN_ADMIN_ID", "0"))
 
 if not BOT_TOKEN:
@@ -711,9 +713,26 @@ async def start_web_server():
     await site.start()
 
 
+async def self_ping():
+    if not RENDER_URL:
+        print("RENDER_URL не задан, автопинг выключен")
+        return
+
+    while True:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(RENDER_URL, timeout=20) as response:
+                    print(f"Self ping: {response.status}")
+        except Exception as e:
+            print(f"Self ping error: {e}")
+
+        await asyncio.sleep(300)
+
+
 async def main():
     await init_db()
     asyncio.create_task(start_web_server())
+    asyncio.create_task(self_ping())
     await dp.start_polling(bot)
 
 
