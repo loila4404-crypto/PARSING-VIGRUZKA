@@ -236,23 +236,15 @@ def main_menu():
     return ReplyKeyboardMarkup(
         keyboard=[
             [
-                KeyboardButton(text="👥 Telegram юзеры"),
                 KeyboardButton(text="➕ Добавить Telegram"),
-            ],
-            [
-                KeyboardButton(text="📂 Telegram группы"),
-                KeyboardButton(text="➕ Создать группу"),
-            ],
-            [
-                KeyboardButton(text="✏️ Переименовать группу"),
-                KeyboardButton(text="📤 Выгрузить Telegram"),
-            ],
-            [
-                KeyboardButton(text="📱 WhatsApp номера"),
                 KeyboardButton(text="➕ Добавить WhatsApp"),
             ],
             [
-                KeyboardButton(text="📤 Выгрузить WhatsApp"),
+                KeyboardButton(text="📂 Группы"),
+                KeyboardButton(text="➕ Создать группу"),
+            ],
+            [
+                KeyboardButton(text="❌ Удалить контакт"),
                 KeyboardButton(text="🔗 Создать ссылку доступа"),
             ],
         ],
@@ -352,25 +344,54 @@ async def create_invite(message: Message):
 
 @dp.message(F.text == "📂 Telegram группы")
 async def show_groups(message: Message):
-    if not await is_admin(message.from_user.id):
-        return
-
-    groups = await get_groups()
-
-    if not groups:
+        if not groups:
         await message.answer("Групп пока нет")
         return
 
-    text = "📂 Telegram группы:\n\n"
     for group in groups:
-        text += f"ID {group['id']} — {group['name']}\n"
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="👀 Посмотреть юзеров",
+                    callback_data=f"show_group_{group['id']}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="✏️ Переименовать",
+                    callback_data=f"rename_group_{group['id']}"
+                ),
+                InlineKeyboardButton(
+                    text="🗑 Удалить",
+                    callback_data=f"delete_group_{group['id']}"
+                )
+            ]
+        ])
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="👀 Открыть группу", callback_data="open_groups_list")]
-    ])
+@dp.callback_query(F.data.startswith("rename_group_"))
+async def rename_group_callback(callback: CallbackQuery, state: FSMContext):
+    if not await is_admin(callback.from_user.id):
+        return
 
-    await message.answer(text, reply_markup=kb)
+    group_id = int(callback.data.split("_")[2])
 
+    await state.update_data(group_id=group_id)
+    await callback.message.answer("Напиши новое название группы")
+    await state.set_state(RenameTelegramGroup.waiting_for_new_name)
+    await callback.answer()        
+
+
+@dp.callback_query(F.data.startswith("delete_group_"))
+async def delete_group_callback(callback: CallbackQuery):
+    if not await is_admin(callback.from_user.id):
+        return
+
+    group_id = int(callback.data.split("_")[2])
+
+    await delete_group(group_id)
+
+    await callback.message.edit_text("🗑 Группа удалена")
+    await callback.answer("Удалено")
 
 @dp.callback_query(F.data == "open_groups_list")
 async def open_groups_list(callback: CallbackQuery):
