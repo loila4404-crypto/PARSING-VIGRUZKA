@@ -57,6 +57,10 @@ class RenameTelegramGroup(StatesGroup):
     waiting_for_new_name = State()
 
 
+class DeleteContactState(StatesGroup):
+    waiting_for_contact = State()
+
+
 async def init_db():
     global db_pool
 
@@ -207,6 +211,15 @@ async def delete_user(user_id: int):
         await conn.execute("delete from tg_users where id = $1", user_id)
 
 
+async def delete_user_by_username(username: str):
+    async with db_pool.acquire() as conn:
+        result = await conn.execute(
+            "delete from tg_users where lower(username) = lower($1)",
+            username
+        )
+        return result
+
+
 async def get_wa_numbers():
     async with db_pool.acquire() as conn:
         return await conn.fetch(
@@ -230,6 +243,15 @@ async def add_wa_number(phone: str, added_by: int):
 async def delete_wa_number(number_id: int):
     async with db_pool.acquire() as conn:
         await conn.execute("delete from wa_numbers where id = $1", number_id)
+
+
+async def delete_wa_by_phone(phone: str):
+    async with db_pool.acquire() as conn:
+        result = await conn.execute(
+            "delete from wa_numbers where phone = $1",
+            phone
+        )
+        return result
 
 
 def main_menu():
@@ -317,6 +339,59 @@ async def start(message: Message):
         return
 
     await message.answer("Панель управления", reply_markup=main_menu())
+
+
+@dp.message(F.text == "❌ Удалить контакт")
+async def delete_contact_button(message: Message, state: FSMContext):
+    if not await is_admin(message.from_user.id):
+        return
+
+    await message.answer(
+        "Отправь @username Telegram или номер WhatsApp"
+    )
+
+    await state.set_state(DeleteContactState.waiting_for_contact)
+
+
+@dp.message(DeleteContactState.waiting_for_contact)
+async def process_delete_contact(message: Message, state: FSMContext):
+    if not await is_admin(message.from_user.id):
+        return
+
+    value = (message.text or "").strip()
+
+    if not value:
+        await message.answer("Пусто. Отправь @username или номер")
+        return
+
+    if "t.me/" in value or value.startswith("@"):
+        username = (
+            value.replace("https://t.me/", "")
+            .replace("http://t.me/", "")
+            .replace("t.me/", "")
+            .replace("@", "")
+            .strip()
+            .strip("/")
+        )
+
+        await delete_user_by_username(username)
+
+        await message.answer(
+            f"✅ Telegram удалён: @{username}",
+            reply_markup=main_menu()
+        )
+
+    else:
+        phone = value.replace(" ", "").replace("-", "")
+
+        await delete_wa_by_phone(phone)
+
+        await message.answer(
+            f"✅ WhatsApp удалён: {phone}",
+            reply_markup=main_menu()
+        )
+
+    await state.clear()
 
 
 @dp.message(F.text == "🔗 Создать ссылку доступа")
