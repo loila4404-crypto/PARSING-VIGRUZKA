@@ -741,7 +741,7 @@ async def add_whatsapp_button(message: Message, state: FSMContext):
     if not await is_admin(message.from_user.id):
         return
 
-    await message.answer("Отправь номер WhatsApp в формате +380991234567")
+    await message.answer("Отправь один или несколько WhatsApp номеров списком. Каждый номер должен начинаться с +")
     await state.set_state(AddWhatsAppNumber.waiting_for_phone)
 
 
@@ -750,15 +750,40 @@ async def process_whatsapp_phone(message: Message, state: FSMContext):
     if not await is_admin(message.from_user.id):
         return
 
-    phone = message.text.strip().replace(" ", "").replace("-", "")
+    raw_text = message.text or ""
 
-    if not phone.startswith("+"):
-        await message.answer("Номер должен начинаться с +, например +380991234567")
+    phones = []
+
+    for line in raw_text.replace(",", "\n").replace(";", "\n").splitlines():
+        phone = line.strip().replace(" ", "").replace("-", "")
+
+        if not phone:
+            continue
+
+        if not phone.startswith("+"):
+            continue
+
+        if phone not in phones:
+            phones.append(phone)
+
+    if not phones:
+        await message.answer("Не нашёл ни одного номера. Номера должны начинаться с +")
         return
 
-    await add_wa_number(phone, message.from_user.id)
+    for phone in phones:
+        await add_wa_number(phone, message.from_user.id)
 
-    await message.answer(f"Добавлен WhatsApp номер:\n{phone}", reply_markup=main_menu())
+    preview = "\n".join(phones[:20])
+    extra = ""
+
+    if len(phones) > 20:
+        extra = f"\n\nИ ещё: {len(phones) - 20}"
+
+    await message.answer(
+        f"✅ Добавлено WhatsApp номеров: {len(phones)}\n\n{preview}{extra}",
+        reply_markup=main_menu()
+    )
+
     await state.clear()
 
 
