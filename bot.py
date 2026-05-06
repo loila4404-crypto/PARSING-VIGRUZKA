@@ -342,31 +342,43 @@ async def create_invite(message: Message):
     await message.answer(f"🔗 Ссылка доступа:\n\n{link}")
 
 
-@dp.message(F.text == "📂 Telegram группы")
+@dp.message(F.text == "📂 Группы")
 async def show_groups(message: Message):
-        if not groups:
+    if not await is_admin(message.from_user.id):
+        return
+
+    groups = await get_groups()
+
+    if not groups:
         await message.answer("Групп пока нет")
         return
 
     for group in groups:
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="👀 Посмотреть юзеров",
-                    callback_data=f"show_group_{group['id']}"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="✏️ Переименовать",
-                    callback_data=f"rename_group_{group['id']}"
-                ),
-                InlineKeyboardButton(
-                    text="🗑 Удалить",
-                    callback_data=f"delete_group_{group['id']}"
-                )
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="👀 Посмотреть юзеров",
+                        callback_data=f"show_group_{group['id']}"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="✏️ Переименовать",
+                        callback_data=f"rename_group_{group['id']}"
+                    ),
+                    InlineKeyboardButton(
+                        text="🗑 Удалить",
+                        callback_data=f"delete_group_{group['id']}"
+                    )
+                ]
             ]
-        ])
+        )
+
+        await message.answer(
+            f"📂 Группа: {group['name']}\nID: {group['id']}",
+            reply_markup=kb
+        )
 
 @dp.callback_query(F.data.startswith("rename_group_"))
 async def rename_group_callback(callback: CallbackQuery, state: FSMContext):
