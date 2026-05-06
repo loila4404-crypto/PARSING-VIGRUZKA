@@ -490,7 +490,7 @@ async def add_telegram_button(message: Message, state: FSMContext):
     if not await is_admin(message.from_user.id):
         return
 
-    await message.answer("Отправь @username")
+    await message.answer("Отправь один или несколько Telegram username списком. Можно с @, без @ или ссылками t.me")
     await state.set_state(AddTelegramUser.waiting_for_username)
 
 
@@ -499,16 +499,42 @@ async def process_telegram_username(message: Message, state: FSMContext):
     if not await is_admin(message.from_user.id):
         return
 
-    username = message.text.replace("@", "").strip()
+    raw_text = message.text or ""
 
-    if not username:
-        await message.answer("Пустой username")
+    usernames = []
+
+    for line in raw_text.replace(",", "\n").replace(";", "\n").splitlines():
+        item = line.strip()
+
+        if not item:
+            continue
+
+        item = item.replace("https://t.me/", "")
+        item = item.replace("http://t.me/", "")
+        item = item.replace("t.me/", "")
+        item = item.replace("@", "")
+        item = item.strip().strip("/")
+
+        if item and item not in usernames:
+            usernames.append(item)
+
+    if not usernames:
+        await message.answer("Не нашёл ни одного username")
         return
 
-    await state.update_data(username=username)
+    await state.update_data(usernames=usernames)
 
     kb = await groups_keyboard("add_to_group")()
-    await message.answer(f"Выбери группу для @{username}:", reply_markup=kb)
+
+    preview = "\n".join([f"@{u}" for u in usernames[:20]])
+    extra = ""
+    if len(usernames) > 20:
+        extra = f"\n\nИ ещё: {len(usernames) - 20}"
+
+    await message.answer(
+        f"Нашёл username: {len(usernames)}\n\n{preview}{extra}\n\nВыбери группу:",
+        reply_markup=kb
+    )
 
 
 @dp.callback_query(F.data.startswith("add_to_group_"))
@@ -518,17 +544,28 @@ async def add_telegram_to_group(callback: CallbackQuery, state: FSMContext):
 
     group_id = int(callback.data.split("_")[3])
     data = await state.get_data()
-    username = data.get("username")
 
-    if not username:
+    usernames = data.get("usernames", [])
+
+    if not usernames:
+        username = data.get("username")
+        if username:
+            usernames = [username]
+
+    if not usernames:
         await callback.message.answer("Username не найден. Начни добавление заново")
         await state.clear()
         await callback.answer()
         return
 
-    await add_user(username, callback.from_user.id, group_id)
+    for username in usernames:
+        await add_user(username, callback.from_user.id, group_id)
 
-    await callback.message.answer(f"✅ Добавлен @{username}", reply_markup=main_menu())
+    await callback.message.answer(
+        f"✅ Добавлено Telegram юзеров: {len(usernames)}",
+        reply_markup=main_menu()
+    )
+
     await state.clear()
     await callback.answer("Добавлено")
 
