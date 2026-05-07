@@ -227,16 +227,17 @@ async def get_wa_numbers():
         )
 
 
-async def add_wa_number(phone: str, added_by: int):
+async def add_wa_number(phone: str, added_by: int, group_id: int = None):
     async with db_pool.acquire() as conn:
         await conn.execute(
             """
-            insert into wa_numbers (phone, status, added_by)
-            values ($1, 'не проверен', $2)
-            on conflict (phone) do nothing
+            insert into wa_numbers (phone, status, added_by, group_id)
+            values ($1, 'не проверен', $2, $3)
+            on conflict(phone) do nothing
             """,
             phone,
-            added_by
+            added_by,
+            group_id
         )
 
 
@@ -751,7 +752,6 @@ async def process_whatsapp_phone(message: Message, state: FSMContext):
         return
 
     raw_text = message.text or ""
-
     phones = []
 
     for line in raw_text.replace(",", "\n").replace(";", "\n").splitlines():
@@ -770,8 +770,9 @@ async def process_whatsapp_phone(message: Message, state: FSMContext):
         await message.answer("Не нашёл ни одного номера. Номера должны начинаться с +")
         return
 
-    for phone in phones:
-        await add_wa_number(phone, message.from_user.id)
+    await state.update_data(phones=phones)
+
+    kb = await groups_keyboard("add_wa_group")()
 
     preview = "\n".join(phones[:20])
     extra = ""
@@ -780,11 +781,9 @@ async def process_whatsapp_phone(message: Message, state: FSMContext):
         extra = f"\n\nИ ещё: {len(phones) - 20}"
 
     await message.answer(
-        f"✅ Добавлено WhatsApp номеров: {len(phones)}\n\n{preview}{extra}",
-        reply_markup=main_menu()
+        f"Нашёл WhatsApp номеров: {len(phones)}\n\n{preview}{extra}\n\nВыбери группу:",
+        reply_markup=kb
     )
-
-    await state.clear()
 
 
 @dp.message(F.text == "📱 WhatsApp номера")
@@ -821,6 +820,34 @@ async def delete_whatsapp_callback(callback: CallbackQuery):
 
     await callback.message.edit_text("❌ WhatsApp номер удален")
     await callback.answer("Удалено")
+
+
+@dp.callback_query(F.data.startswith("add_wa_group_"))
+async def add_wa_to_group(callback: CallbackQuery, state: FSMContext):
+    if not await is_admin(callback.from_user.id):
+        return
+
+    group_id = int(callback.data.split("_")[3])
+
+    data = await state.get_data()
+    phones = data.get("phones", [])
+
+    if not phones:
+        await callback.message.answer("Номера не найдены")
+        await state.clear()
+        await callback.answer()
+        return
+
+    for phone in phones:
+        await add_wa_number(phone, callback.from_user.id, group_id)
+
+    await callback.message.answer(
+        f"✅ Добавлено WhatsApp номеров: {len(phones)}",
+        reply_markup=main_menu()
+    )
+
+    await state.clear()
+    await callback.answer("Добавлено")
 
 
 @dp.message(F.text == "📤 Выгрузить WhatsApp")
